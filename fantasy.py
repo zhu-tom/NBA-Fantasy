@@ -113,7 +113,7 @@ def printStats(stats):
             elif key == 'date':
                 print(f"{player[key]:15}", end="")
             else:
-                if key != 'mp':
+                if type(player[key]) != str:
                     print(f"{player[key]:<8.3f}", end="")
                 else:
                     print(f"{player[key]:<8}", end="")
@@ -122,50 +122,116 @@ def printStats(stats):
 def getTeams(json):
     return [[player['playerPoolEntry']['player']['fullName'] for player in team['roster']['entries']] for team in fantasy['teams']]
 
+statKey = {0: 'pts', 1: 'blk', 2: 'stl', 3: 'ast', 4: 'orb', 5: 'drb', 6: 'trb', 11: 'tov', 13: 'fg', 14: 'fga', 15: 'ft', 16: 'fta', 17: 'fg3', 18: 'fg3a', 19: 'fg_pct', 20: 'ft_pct', 21: 'fg3_pct', 22: 'efg_pct', 23: 'fgmi', 24: 'ftmi', 25: 'fg3mi'}
+posKey = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', "PF/C", "F/C", 'UTL', 'BE', 'IR', 'EXTRA')
+
+class Team:
+    teamID = ""
+    roster = []
+    teamName = ""
+    playoffSeed = 0
+    totals = {}
+
+    def __init__(self, League, teamInfo):
+        self.abbrev = teamInfo['abbrev']
+        self.teamID = teamInfo['id']
+        self.teamName = teamInfo['location'] + teamInfo['nickname']
+        self.division = League.divisions[teamInfo['divisionId']]
+        self.playoffSeed = teamInfo['playoffSeed']
+        self.record = teamInfo['record']
+        self.transactions = teamInfo['transactionCounter']
+        self.waiverRank = teamInfo['waiverRank']
+        for key in teamInfo['valuesByStat']:
+            self.totals[statKey[int(key)]] = teamInfo['valuesByStat'][key]
+        self.League = League
+
+    def setRoster(self, json):
+        for playerInfo in json:
+            self.roster.append(Player(self.League, self, playerInfo))
+
+class Player:
+    name = ""
+    totals = {}
+    averages = {}
+    gameLog = {}
+    eligibleSlots = []
+    team = Team
+
+    def __init__(self, League, Team, playerInfo):
+        self.id = playerInfo['playerId']
+        self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
+        self.slotID = playerInfo['lineupSlotId']
+        self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
+        print(League.rosterBuild)
+        # TODO ADD ELIGIBLE POSITIONS BASED ON LEAGUE SETTINGS
+        for position in playerInfo['playerPoolEntry']['player']['eligibleSlots']:
+            print(posKey[position], end=" ")
+            self.eligibleSlots.append(posKey[position])
+        print()
+
+
+
 class League:
     name = ""
     teams = []
-    scoring = {}
+    leagueType = ""
+    rosterBuild = {}
+    divisions = ()
 
-    def __init__(self, url):
+    def __init__(self, leagueID, season):
         swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
         espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
-        response = requests.get(url, params={'view': 'mRoster'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
+        url = "https://fantasy.espn.com/apis/v3/games/fba/seasons/"+ str(season) + "/segments/0/leagues/" + str(leagueID)
+        special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić", 'Bojan Bogdanovic': 'Bojan Bogdanović', 'Tomas Satoransky': 'Tomáš Satoranský'}
+        
+        # LEAGUE INFO
+        response = requests.get(url, params={'view': 'mSettings'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
+        self.name = response['settings']['name']
+        # TODO: ADD AUTO SCORING
+        lineupSettings = response['settings']['rosterSettings']['lineupSlotCounts']
+        for key in lineupSettings:
+            if lineupSettings[key] > 0:
+                self.rosterBuild[posKey[int(key)]] = lineupSettings[key]
+        del lineupSettings
+
+        self.divisions = (response['settings']['scheduleSettings']['divisions'][0]['name'], response['settings']['scheduleSettings']['divisions'][1]['name'])
+        
+        self.leagueType = response['settings']['scoringSettings']['scoringType']
+        if self.leagueType == 'H2H_POINTS' or self.leagueType == 'TOTAL_SEASON_POINTS':
+            self.scoring = {}
+            for stat in response['settings']['scoringSettings']['scoringItems']:
+                self.scoring[statKey[stat['statId']]] = stat['points']
+
+        # TEAMS
+        response = requests.get(url, params={'view': 'mTeam'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
+        for teamInfo in response['teams']:
+            self.teams.append(Team(self, teamInfo))
+
+        response = requests.get(url, params={'view': 'mMatchup'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
         
         # PLAYER SLOTS
         # response['teams'][5]['roster']['entries'][2]['playerPoolEntry']['player']['eligibleSlots']
-        rosters = {}
         for team in response['teams']:
-            teamID = team['id']
-            rosters[teamID] = [player['playerPoolEntry']['player']['fullName'] for player in team['roster']['entries']]
+            for leagueTeam in self.teams:
+                if leagueTeam.teamID == team['id']:
+                    leagueTeam.setRoster(team['roster']['entries'])
         
-        response = requests.get(url, params={'view': 'mSettings'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
-        # TODO: ADD AUTO SCORING
-        for stat in response['settings']['scoringSettings']['scoringItems']:
-           self.scoring[stat['statId']] = stat['points']
-        print(self.scoring)
-
-        response = requests.get(url, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
-        self.name = response['settings']['name']
-        self.teams = response['teams']
-        for team in self.teams:
-            del team['owners']
-            team['roster'] = rosters[team['id']]
+        
 
 categories = ("g", "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")
 scoring = {"fg": 1, "fga": -1, "ft": 1, "fta": -1, "trb": 1.2, "ast": 1.5, "stl": 3, "blk": 3, "tov": -1, "pts": 1}
-standardPos = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', '', 'UTL', 'UTL', 'UTL')
 seasonurl = 'https://www.basketball-reference.com/leagues/NBA_2020_totals.html'
-leagueurl = "https://fantasy.espn.com/apis/v3/games/fba/seasons/2020/segments/0/leagues/17451714"
+leagueID = '17451714'
+year = '2020'
 
 team = ["Terry Rozier", "Malcolm Brogdon", "LeBron James", "Danilo Gallinari", "Tristan Thompson", "Luka Dončić", "D'Angelo Russell", "Nikola Jokić", "De'Aaron Fox", "Jabari Parker", "Zion Williamson", "Shai Gilgeous-Alexander", "Aron Baynes"]
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 # printStats(averageStats(team))
 
-special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić"}
 
-fantasy = League(leagueurl)
-print(fantasy.name)
+fantasy = League(leagueID, year)
+#printStats(gameLog('Danilo Gallinari'))
+# printStats(averageStats(fantasy.teams[5]['roster']))
 
 # league = getTeams(fantasy)
 
