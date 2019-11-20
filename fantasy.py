@@ -6,7 +6,7 @@ def getSoup(url):
     html = BeautifulSoup(response.text, 'html.parser')
     return html
 
-def getTotals(team):
+def getTotals(team, scoring):
     categories = ["g", "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts"]
     scoring = {"fg": 1, "fga": -1, "ft": 1, "fta": -1, "trb": 1.2, "ast": 1.5, "stl": 3, "blk": 3, "tov": -1, "pts": 1}
 
@@ -97,7 +97,7 @@ def gameLog(player):
 
 
 def printStats(stats):
-    for key in stats[0].keys(): # arbitrary player stat categories
+    for key in stats[0].keys(): # arbitrary player stat categories for headers
         if key == 'name':
             print(f"{key:30}", end="")
         elif key == 'date':
@@ -119,82 +119,207 @@ def printStats(stats):
                     print(f"{player[key]:<8}", end="")
         print()
 
-def getTeams(json):
-    return [[player['playerPoolEntry']['player']['fullName'] for player in team['roster']['entries']] for team in fantasy['teams']]
-
 statKey = {0: 'pts', 1: 'blk', 2: 'stl', 3: 'ast', 4: 'orb', 5: 'drb', 6: 'trb', 11: 'tov', 13: 'fg', 14: 'fga', 15: 'ft', 16: 'fta', 17: 'fg3', 18: 'fg3a', 19: 'fg_pct', 20: 'ft_pct', 21: 'fg3_pct', 22: 'efg_pct', 23: 'fgmi', 24: 'ftmi', 25: 'fg3mi'}
 posKey = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', "PF/C", "F/C", 'UTL', 'BE', 'IR', 'EXTRA')
+proTeams = {1:'ATL', 2:'BOS', 3:'NOP', 4:'CHI', 5:'CLE', 6:'DAL', 7:'DEN', 8:'DET', 9:'GSW', 10:'HOU', 11:'IND', 12:'LAC', 13:'LAL', 14:'MIA', 15:'MIL', 16:'MIN', 17:'BKN', 18:'NYK', 19:'ORL', 20:'PHI', 21:'PHX', 22:'POR', 23:'SAC', 24:'SAS', 25:'OKC', 26:'UTA', 27:'WAS', 28:'TOR', 29:'MEM', 30:'CHA'}
+special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić", 'Bojan Bogdanovic': 'Bojan Bogdanović', 'Tomas Satoransky': 'Tomáš Satoranský'}
+
 
 class Team:
-    teamID = ""
-    roster = []
-    teamName = ""
-    playoffSeed = 0
-    totals = {}
 
-    def __init__(self, League, teamInfo):
+    def __init__(self, league, teamInfo):
         self.abbrev = teamInfo['abbrev']
         self.teamID = teamInfo['id']
         self.teamName = teamInfo['location'] + teamInfo['nickname']
-        self.division = League.divisions[teamInfo['divisionId']]
+        self.division = league.divisions[teamInfo['divisionId']]
         self.playoffSeed = teamInfo['playoffSeed']
         self.record = teamInfo['record']
         self.transactions = teamInfo['transactionCounter']
         self.waiverRank = teamInfo['waiverRank']
+        self.totals = {}
         for key in teamInfo['valuesByStat']:
             self.totals[statKey[int(key)]] = teamInfo['valuesByStat'][key]
-        self.League = League
+        self.league = league
 
     def setRoster(self, json):
-        for playerInfo in json:
-            self.roster.append(Player(self.League, self, playerInfo))
+        self.roster = [Player(self.league, self, playerInfo) for playerInfo in json]
+    
+    def printAverages(self):
+        for player in self.roster:
+            pass
+            
 
 class Player:
-    name = ""
     totals = {}
     averages = {}
     gameLog = {}
-    eligibleSlots = []
-    team = Team
+    categories = ("g", "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")
 
-    def __init__(self, League, Team, playerInfo):
+    def __init__(self, league, team, playerInfo):
         self.id = playerInfo['playerId']
         self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
-        self.slotID = playerInfo['lineupSlotId']
+        self.currentSlot = posKey[playerInfo['lineupSlotId']]
         self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
-        print(League.rosterBuild)
-        # TODO ADD ELIGIBLE POSITIONS BASED ON LEAGUE SETTINGS
-        for position in playerInfo['playerPoolEntry']['player']['eligibleSlots']:
-            print(posKey[position], end=" ")
-            self.eligibleSlots.append(posKey[position])
+        self.eligibleSlots = [posKey[position] for position in playerInfo['playerPoolEntry']['player']['eligibleSlots'] if posKey[position] in league.rosterBuild.keys()]
+        self.name = playerInfo['playerPoolEntry']['player']['fullName']
+        if self.name in special:
+            self.name = special[self.name]
+        self.ownership = playerInfo['playerPoolEntry']['player']['ownership']
+        self.team = proTeams[playerInfo['playerPoolEntry']['player']['proTeamId']]
+        self.injured = playerInfo['playerPoolEntry']['player']['injured']
+        self.injuryStatus = playerInfo['playerPoolEntry']['player']['injuryStatus']
+        self.ratingsByPeriod = playerInfo['playerPoolEntry']['ratings']
+        self.rosterLocked = playerInfo['playerPoolEntry']['rosterLocked']
+        self.tradeLocked = playerInfo['playerPoolEntry']['tradeLocked']
+        self.lineupLocked = playerInfo['playerPoolEntry']['lineupLocked']
+        self.keeperValue = playerInfo['playerPoolEntry']['keeperValue']
+        self.keeperValueFuture = playerInfo['playerPoolEntry']['keeperValueFuture']
+        self.leagueTeam = playerInfo['playerPoolEntry']['onTeamId']
+        self.league = league
+
+    def getTotals(self):
+        scoring = self.league.scoring
+
+        html = getSoup(seasonurl)
+
+        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
+
+        self.totals = {} # initiate
+
+        for row in rows:
+            if row.find('td').find('a').text == self.name: # if player name match
+                fpts = 0
+                for cat in self.categories:
+                    val = row.find('td', {'data-stat': cat}).text
+                    if val == "":
+                        val = 0
+                    else:
+                        self.totals[cat] = float(val) # insert stats under category
+                    
+                    if cat in scoring.keys(): # if category is scored
+                        fpts += scoring[cat] * self.totals[cat] # add to total
+                self.totals['fpts'] = fpts
+
+    def getAverages(self):
+        doNotAvg = ('g', 'fg_pct', 'fg3_pct', 'ft_pct')
+
+        self.getTotals()
+        self.averages = {'name': self.name}
+        for key in self.totals:
+            self.averages[key] = self.totals[key]
+            if key not in doNotAvg:
+                self.averages[key] /= self.totals['g']
+
+    def getGameLog(self):
+        html = getSoup(seasonurl)
+
+        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
+
+        for row in rows:
+            nameLink = row.find('td', {'data-stat': 'player'}).find('a')
+            if nameLink.text == self.name:
+                playerLink = nameLink['href'].replace('.html', "")
+        
+        gamesPage = f"https://www.basketball-reference.com{playerLink}/gamelog/2020"
+
+        html = getSoup(gamesPage)
+
+        rows = html.find('tbody').findAll('tr')
+
+        self.gameLog = []
+        for row in rows:
+            date = row.find('td', {'data-stat': 'date_game'}).text
+            game = {'date': date}
+            
+            fpts = 0
+            played = True
+            for cat in categories[1:]:
+                cell = row.find('td', {'data-stat': cat})
+                if cell == None: # player is out, has no stats
+                    played = False
+                    game['mp'] = row.find('td', {'data-stat': 'reason'}).text
+                    break # move to next game
+                else: 
+                    game[cat] = cell.text
+
+                if game[cat] != "" and cat != 'mp':
+                    game[cat] = float(game[cat]) # cast all values to float if possible
+                elif cat != 'mp':
+                    game[cat] = 0
+                
+                if cat in scoring.keys(): # if category is scored
+                    fpts += scoring[cat] * game[cat] # add to total
+
+            if played == True:
+                game['fpts'] = fpts
+
+            self.gameLog.append(game) 
+    
+    def printStats(self, stat='averages'):
+        if stat == 'averages':
+            self.getAverages()
+            stats = [self.averages]
+        elif stat == 'gamelog':
+            self.getGameLog()
+            stats = self.gameLog
+        else:
+            print("Error: Not valid stat group")
+            return None
+
+        for key in stats[0].keys(): # arbitrary player stat categories
+            if key == 'name':
+                print(f"{key:30}", end="")
+            elif key == 'date':
+                print(f"{key:15}", end="")
+            else:
+                print(f"{key:<8}", end="")
         print()
 
-
-
+        for player in stats:
+            for key in player.keys():
+                if key == 'name':
+                    print(f"{player[key]:30}", end="")
+                elif key == 'date':
+                    print(f"{player[key]:15}", end="")
+                else:
+                    if type(player[key]) != str:
+                        print(f"{player[key]:<8.3f}", end="")
+                    else:
+                        print(f"{player[key]:<8}", end="")
+            print()
+            
 class League:
     name = ""
     teams = []
     leagueType = ""
     rosterBuild = {}
     divisions = ()
-
+    swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
+    espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
+        
     def __init__(self, leagueID, season):
         swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
         espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
         url = "https://fantasy.espn.com/apis/v3/games/fba/seasons/"+ str(season) + "/segments/0/leagues/" + str(leagueID)
-        special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić", 'Bojan Bogdanovic': 'Bojan Bogdanović', 'Tomas Satoransky': 'Tomáš Satoranský'}
         
         # LEAGUE INFO
         response = requests.get(url, params={'view': 'mSettings'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
+        try:
+            settings = response['settings']
+        except KeyError:
+            print("Error: League is private. Please set cookies swid and espn_s2")
+            return None
+
         self.name = response['settings']['name']
         # TODO: ADD AUTO SCORING
         lineupSettings = response['settings']['rosterSettings']['lineupSlotCounts']
+        self.rosterBuild = {}
         for key in lineupSettings:
             if lineupSettings[key] > 0:
                 self.rosterBuild[posKey[int(key)]] = lineupSettings[key]
         del lineupSettings
 
-        self.divisions = (response['settings']['scheduleSettings']['divisions'][0]['name'], response['settings']['scheduleSettings']['divisions'][1]['name'])
+        self.divisions = [div['name'] for div in response['settings']['scheduleSettings']['divisions']]
         
         self.leagueType = response['settings']['scoringSettings']['scoringType']
         if self.leagueType == 'H2H_POINTS' or self.leagueType == 'TOTAL_SEASON_POINTS':
@@ -202,12 +327,13 @@ class League:
             for stat in response['settings']['scoringSettings']['scoringItems']:
                 self.scoring[statKey[stat['statId']]] = stat['points']
 
+        self.rosterLocktime = response['settings']['rosterSettings']['rosterLocktimeType']
+
         # TEAMS
         response = requests.get(url, params={'view': 'mTeam'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
-        for teamInfo in response['teams']:
-            self.teams.append(Team(self, teamInfo))
+        self.teams = [Team(self, teamInfo) for teamInfo in response['teams']]
 
-        response = requests.get(url, params={'view': 'mMatchup'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
+        response = requests.get(url, params={'view': 'mRoster'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
         
         # PLAYER SLOTS
         # response['teams'][5]['roster']['entries'][2]['playerPoolEntry']['player']['eligibleSlots']
@@ -228,9 +354,9 @@ team = ["Terry Rozier", "Malcolm Brogdon", "LeBron James", "Danilo Gallinari", "
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 # printStats(averageStats(team))
 
-
-fantasy = League(leagueID, year)
-#printStats(gameLog('Danilo Gallinari'))
+myLeague = League(leagueID, year)
+myLeague.teams[0].roster[0].printStats(stat='gamelog')
+#fantasy = League(leagueID, year)
 # printStats(averageStats(fantasy.teams[5]['roster']))
 
 # league = getTeams(fantasy)
