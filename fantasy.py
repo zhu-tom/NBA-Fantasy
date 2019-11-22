@@ -101,19 +101,29 @@ class Player:
 
         self.totals = {} # initiate
 
-        for row in rows:
-            if row.find('td').find('a').text == self.name: # if player name match
+        lname = self.name.split(" ")[1]
+
+        while len(rows) != 0:
+            mid = len(rows) // 2
+            name = rows[mid].find('td').find('a').text
+            currlname = name.split(" ")[1]
+            if currlname == lname:
                 fpts = 0
                 for cat in self.categories:
-                    val = row.find('td', {'data-stat': cat}).text
+                    val = rows[mid].find('td', {'data-stat': cat}).text
                     if val == "":
                         self.totals[cat] = 0
                     else:
                         self.totals[cat] = float(val) # insert stats under category
                     
-                    if cat in scoring.keys(): # if category is scored
-                        fpts += scoring[cat] * self.totals[cat] # add to total
+                    if cat in self.leagueTeam.league.scoring.keys(): # if category is scored
+                        fpts += self.leagueTeam.league.scoring[cat] * self.totals[cat] # add to total
                 self.totals['fpts'] = fpts
+                break
+            elif currlname < lname:
+                rows = rows[mid+1:]
+            else:
+                rows = rows[:mid]
 
     def getAverages(self):
         doNotAvg = ('g', 'fg_pct', 'fg3_pct', 'ft_pct')
@@ -132,10 +142,21 @@ class Player:
 
         rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
 
-        for row in rows:
-            nameLink = row.find('td', {'data-stat': 'player'}).find('a')
-            if nameLink.text == self.name:
+        lname = self.name.split(" ")[1]
+
+        while len(rows) != 0:
+            mid = len(rows) // 2
+            name = rows[mid].find('td').find('a').text
+            currlname = name.split(" ")[1]
+        
+            if currlname == lname:
+                nameLink = rows[mid].find('td', {'data-stat': 'player'}).find('a')
                 playerLink = nameLink['href'].replace('.html', "")
+                break
+            elif currlname < lname:
+                rows = rows[mid+1:]
+            else:
+                rows = rows[:mid]
         
         # Use href to find game log page
         gamesPage = f"https://www.basketball-reference.com{playerLink}/gamelog/2020"
@@ -175,12 +196,17 @@ class Player:
             self.gameLog.append(game) 
     
     def printStats(self, stat='averages'):
+        self.getAverages()
         if stat == 'averages':
-            self.getAverages()
             stats = [self.averages]
         elif stat == 'gamelog':
             self.getGameLog()
-            stats = self.gameLog
+            stats = self.gameLog[:]
+            avg = {'date': "Average"}
+            for key in self.averages:
+                if key in self.gameLog[0]:
+                    avg[key] = self.averages[key]
+            stats.append(avg)
         else:
             print("Error: Not valid stat group")
             return None
