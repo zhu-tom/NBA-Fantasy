@@ -1,5 +1,6 @@
 from bs4 import BeautifulSoup
 import requests
+import unicodedata
 
 statKey = {0: 'pts', 1: 'blk', 2: 'stl', 3: 'ast', 4: 'orb', 5: 'drb', 6: 'trb', 11: 'tov', 13: 'fg', 14: 'fga', 15: 'ft', 16: 'fta', 17: 'fg3', 18: 'fg3a', 19: 'fg_pct', 20: 'ft_pct', 21: 'fg3_pct', 22: 'efg_pct', 23: 'fgmi', 24: 'ftmi', 25: 'fg3mi'}
 posKey = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', "PF/C", "F/C", 'UTL', 'BE', 'IR', 'EXTRA')
@@ -45,7 +46,7 @@ class Team:
 
         for key in self.roster[0].averages: # arbitrary player stat categories
             if key == 'name':
-                print(f"{key:30}", end="")
+                print(f"{key:24}", end="")
             else:
                 print(f"{key:<8}", end="")
         print()
@@ -53,7 +54,7 @@ class Team:
         for player in self.roster:
             for key in player.averages:
                 if key == 'name':
-                    print(f"{player.averages[key]:30}", end="")
+                    print(f"{player.averages[key]:24}", end="")
                 else:
                     if type(player.averages[key]) != str:
                         print(f"{player.averages[key]:<8.3f}", end="")
@@ -76,9 +77,6 @@ class Player:
         self.currentSlot = posKey[playerInfo['lineupSlotId']]
         self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
         self.eligibleSlots = [posKey[position] for position in playerInfo['playerPoolEntry']['player']['eligibleSlots'] if posKey[position] in league.rosterBuild.keys()]
-        # self.name = playerInfo['playerPoolEntry']['player']['fullName']
-        # if self.name in special:
-        #     self.name = special[self.name]
         self.ownership = playerInfo['playerPoolEntry']['player']['ownership']
         self.nbaTeam = proTeams[playerInfo['playerPoolEntry']['player']['proTeamId']]
         self.injured = playerInfo['playerPoolEntry']['player']['injured']
@@ -101,24 +99,28 @@ class Player:
 
         self.totals = {} # initiate
 
-        lname = self.name.split(" ")[1]
+        lname = self.name.split(" ")[1].lower()
 
         while len(rows) != 0:
             mid = len(rows) // 2
             name = rows[mid].find('td').find('a').text
-            currlname = name.split(" ")[1]
+            currlname = name.split(" ")[1].lower()
+            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
             if currlname == lname:
-                fpts = 0
-                for cat in self.categories:
-                    val = rows[mid].find('td', {'data-stat': cat}).text
-                    if val == "":
-                        self.totals[cat] = 0
-                    else:
-                        self.totals[cat] = float(val) # insert stats under category
-                    
-                    if cat in self.leagueTeam.league.scoring.keys(): # if category is scored
-                        fpts += self.leagueTeam.league.scoring[cat] * self.totals[cat] # add to total
-                self.totals['fpts'] = fpts
+                for row in rows:
+                    if row.find('td').find('a').text == self.name:
+                        fpts = 0
+                        for cat in self.categories:
+                            val = row.find('td', {'data-stat': cat}).text
+                            if val == "":
+                                self.totals[cat] = 0
+                            else:
+                                self.totals[cat] = float(val) # insert stats under category
+                            
+                            if cat in self.leagueTeam.league.scoring.keys(): # if category is scored
+                                fpts += self.leagueTeam.league.scoring[cat] * self.totals[cat] # add to total
+                        self.totals['fpts'] = fpts
+                        break
                 break
             elif currlname < lname:
                 rows = rows[mid+1:]
@@ -142,16 +144,21 @@ class Player:
 
         rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
 
-        lname = self.name.split(" ")[1]
+        lname = self.name.split(" ")[1].lower()
 
         while len(rows) != 0:
             mid = len(rows) // 2
             name = rows[mid].find('td').find('a').text
-            currlname = name.split(" ")[1]
+            currlname = name.split(" ")[1].lower()
+            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
+            print(currlname)
         
             if currlname == lname:
-                nameLink = rows[mid].find('td', {'data-stat': 'player'}).find('a')
-                playerLink = nameLink['href'].replace('.html', "")
+                for row in rows:
+                    if row.find('td').find('a').text == self.name:
+                        nameLink = row.find('td', {'data-stat': 'player'}).find('a')
+                        playerLink = nameLink['href'].replace('.html', "")
+                        break
                 break
             elif currlname < lname:
                 rows = rows[mid+1:]
@@ -199,7 +206,9 @@ class Player:
         self.getAverages()
         if stat == 'averages':
             stats = [self.averages]
+            headers = ("name", 'g', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts", 'fpts')
         elif stat == 'gamelog':
+            headers = ('date', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")
             self.getGameLog()
             stats = self.gameLog[:]
             avg = {'date': "Average"}
@@ -211,9 +220,9 @@ class Player:
             print("Error: Not valid stat group")
             return None
 
-        for key in stats[0].keys(): # arbitrary player stat categories
+        for key in headers: # arbitrary player stat categories
             if key == 'name':
-                print(f"{key:30}", end="")
+                print(f"{key:24}", end="")
             elif key == 'date':
                 print(f"{key:15}", end="")
             else:
@@ -223,7 +232,7 @@ class Player:
         for player in stats:
             for key in player.keys():
                 if key == 'name':
-                    print(f"{player[key]:30}", end="")
+                    print(f"{player[key]:24}", end="")
                 elif key == 'date':
                     print(f"{player[key]:15}", end="")
                 else:
@@ -301,7 +310,7 @@ year = '2020'
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 
 myLeague = League(leagueID, year)
-myLeague.printStats('Danilo Gallinari', stat='gamelog')
+myLeague.printStats('Giannis Antetokounmpo')
 
 # 1.0 0 PTS
 # 3.0 1 BLK
