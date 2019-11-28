@@ -8,262 +8,17 @@ proTeams = {1:'ATL', 2:'BOS', 3:'NOP', 4:'CHI', 5:'CLE', 6:'DAL', 7:'DEN', 8:'DE
 special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić", 'Bojan Bogdanovic': 'Bojan Bogdanović',
     'Tomas Satoransky': 'Tomáš Satoranský', 'Marvin Bagley III': 'Marvin Bagley', "Wendell Carter Jr.": "Wendell Carter",
          "Jonas Valanciunas": "Jonas Valančiūnas", "Kristaps Porzingis": "Kristaps Porziņģis", 'Bogdan Bogdanovic': 'Bogdan Bogdanović', 
-         "Goran Dragic": "Goran Dragić", "Nikola Vucevic": "Nikola Vučević", "Kelly Oubre Jr.":"Kelly Oubre", "Dennis Schroder": "Dennis Schröder"}
+         "Goran Dragic": "Goran Dragić", "Nikola Vucevic": "Nikola Vučević", "Kelly Oubre Jr.":"Kelly Oubre", "Dennis Schroder": "Dennis Schröder",
+         "Marcus Morris Sr.": "Marcus Morris"}
 statHead = {'averages': ("name", 'g', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts", 'fpts'), 
             'gamelog': ('date', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")}
 categories = ("g", "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")
 
-def getSoup(url):
+def getSoup(url: str) -> BeautifulSoup:
     response = requests.get(url)
     html = BeautifulSoup(response.text, 'html.parser')
     return html
 
-class Team:
-
-    def __init__(self, league, teamInfo):
-        self.abbrev = teamInfo['abbrev']
-        self.teamID = teamInfo['id']
-        self.teamName = teamInfo['location'] + " " + teamInfo['nickname']
-        self.division = league.divisions[teamInfo['divisionId']]
-        self.playoffSeed = teamInfo['playoffSeed']
-        self.record = teamInfo['record']
-        self.transactions = teamInfo['transactionCounter']
-        self.waiverRank = teamInfo['waiverRank']
-        self.totals = {}
-        for key in teamInfo['valuesByStat']:
-            self.totals[statKey[int(key)]] = teamInfo['valuesByStat'][key]
-        self.league = league
-
-    def setRoster(self, json):
-        self.roster = []
-        for playerInfo in json:
-            member = Player(playerInfo['playerPoolEntry']['player']['fullName'])
-            member.setUp(self.league, self, playerInfo)
-            self.roster.append(member)
-    
-    def printAverages(self):
-        for player in self.roster:
-            player.getAverages()
-
-        print(f"{self.teamName} ({self.abbrev}) {self.record['overall']['wins']}-{self.record['overall']['losses']}")
-
-        for key in statHead['averages']: # arbitrary player stat categories
-            if key == 'name':
-                print(f"{key:24}", end="")
-            else:
-                print(f"{key:<8}", end="")
-        print()
-
-        for player in self.roster:
-            for key in player.averages:
-                if key == 'name':
-                    print(f"{player.averages[key]:24}", end="")
-                else:
-                    if type(player.averages[key]) != str:
-                        print(f"{player.averages[key]:<8.3f}", end="")
-                    else:
-                        print(f"{player.averages[key]:<8}", end="")
-            print()
-                
-
-class Player:
-
-    def __init__(self, name):
-        self.name = name
-        if self.name in special:
-            self.name = special[self.name]
-        
-    def setUp(self, league, team, playerInfo):
-        self.id = playerInfo['playerId']
-        self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
-        self.currentSlot = posKey[playerInfo['lineupSlotId']]
-        self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
-        self.eligibleSlots = [posKey[position] for position in playerInfo['playerPoolEntry']['player']['eligibleSlots'] if posKey[position] in league.rosterBuild.keys()]
-        self.ownership = playerInfo['playerPoolEntry']['player']['ownership']
-        self.nbaTeam = proTeams[playerInfo['playerPoolEntry']['player']['proTeamId']]
-        self.injured = playerInfo['playerPoolEntry']['player']['injured']
-        self.injuryStatus = playerInfo['playerPoolEntry']['player']['injuryStatus']
-        self.ratingsByPeriod = playerInfo['playerPoolEntry']['ratings']
-        self.rosterLocked = playerInfo['playerPoolEntry']['rosterLocked']
-        self.tradeLocked = playerInfo['playerPoolEntry']['tradeLocked']
-        self.lineupLocked = playerInfo['playerPoolEntry']['lineupLocked']
-        self.keeperValue = playerInfo['playerPoolEntry']['keeperValue']
-        self.keeperValueFuture = playerInfo['playerPoolEntry']['keeperValueFuture']
-        self.leagueTeam = team
-
-
-    def getTotals(self):
-        scoring = self.leagueTeam.league.scoring
-
-        html = self.leagueTeam.league.totalsHTML
-
-        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
-
-        self.totals = {} # initiate
-
-        lname = self.name.split(" ")[1].lower()
-        lname = u"".join([c for c in unicodedata.normalize('NFKD', lname) if not unicodedata.combining(c)])
-
-        while len(rows) != 0:
-            mid = len(rows) // 2
-            name = rows[mid].find('td').find('a').text
-            currlname = name.split(" ")[1].lower()
-            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
-            if currlname == lname:
-                for row in rows:
-                    if row.find('td').find('a').text == self.name:
-                        fpts = 0
-                        for cat in categories:
-                            val = row.find('td', {'data-stat': cat}).text
-                            if val == "":
-                                self.totals[cat] = 0
-                            else:
-                                self.totals[cat] = float(val) # insert stats under category
-                            
-                            if cat in self.leagueTeam.league.scoring.keys(): # if category is scored
-                                fpts += self.leagueTeam.league.scoring[cat] * self.totals[cat] # add to total
-                        self.totals['fpts'] = fpts
-                        break
-                break
-            elif currlname < lname:
-                rows = rows[mid+1:]
-            else:
-                rows = rows[:mid]
-
-    def getAverages(self):
-        doNotAvg = ('g', 'fg_pct', 'fg3_pct', 'ft_pct')
-
-        self.getTotals()
-        self.averages = {'name': self.name}
-        for key in self.totals:
-            self.averages[key] = self.totals[key]
-            if key not in doNotAvg:
-                self.averages[key] /= self.totals['g']
-
-    def getGameLog(self, last=0):
-
-        # Find href to player page from league totals page
-        html = self.leagueTeam.league.totalsHTML
-
-        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
-
-        lname = self.name.split(" ")[1].lower()
-        lname = u"".join([c for c in unicodedata.normalize('NFKD', lname) if not unicodedata.combining(c)])
-
-        while len(rows) != 0:
-            mid = len(rows) // 2
-            name = rows[mid].find('td').find('a').text
-            currlname = name.split(" ")[1].lower()
-            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
-        
-            if currlname == lname:
-                for row in rows:
-                    if row.find('td').find('a').text == self.name:
-                        nameLink = row.find('td', {'data-stat': 'player'}).find('a')
-                        playerLink = nameLink['href'].replace('.html', "")
-                        break
-                break
-            elif currlname < lname:
-                rows = rows[mid+1:]
-            else:
-                rows = rows[:mid]
-        
-        # Use href to find game log page
-        gamesPage = f"https://www.basketball-reference.com{playerLink}/gamelog/2020"
-
-        html = getSoup(gamesPage)
-
-        rows = html.find('tbody').findAll('tr')
-
-        # add to games to game log
-        avg = {'date': 'Average'}
-        for cat in categories[1:]:
-            avg[cat] = 0 
-        avg['fpts'] = 0
-        gp = 0
-
-        self.gameLog = []
-        for row in rows[-last:]:
-            date = row.find('td', {'data-stat': 'date_game'}).text
-            game = {'date': date}
-            
-            fpts = 0
-            played = True
-            for cat in categories[1:]:
-                cell = row.find('td', {'data-stat': cat})
-                if cell == None: # player is out, has no stats
-                    played = False
-                    game['mp'] = row.find('td', {'data-stat': 'reason'}).text
-                    break # move to next game
-                else: 
-                    game[cat] = cell.text
-
-                if game[cat] != "" and cat != 'mp':
-                    game[cat] = float(game[cat]) # cast all values to float if possible
-                    avg[cat] += game[cat]
-                elif cat != 'mp':
-                    game[cat] = 0
-                else:
-                    minutes = game[cat].split(":")
-                    avg[cat] += int(minutes[0])+(float(minutes[1])/60)
-
-                if cat in self.leagueTeam.league.scoring: # if category is scored
-                    fpts += self.leagueTeam.league.scoring[cat] * game[cat] # add to total
-
-            if played == True:
-                game['fpts'] = fpts
-                avg['fpts'] += game['fpts']
-                gp += 1
-
-            self.gameLog.append(game)
-
-        for key in avg:
-            if key != 'date':
-                avg[key] /= gp
-        
-        self.gameLog.append(avg)
-        
-    
-    def printStats(self, stat='averages', last=0):
-        headers = statHead[stat]
-
-        if stat == 'averages':
-            self.getAverages()
-            stats = [self.averages]
-        elif stat == 'gamelog':
-            self.getGameLog(last=last)
-            stats = self.gameLog[:]
-            avg = {'date': "Average"}
-            # for key in self.averages:
-            #     if key in self.gameLog[0]:
-            #         avg[key] = self.averages[key]
-            # stats.append(avg)
-        else:
-            print("Error: Not valid stat group")
-            return None
-
-        # for key in headers: # arbitrary player stat categories
-        #     if key == 'name':
-        #         print(f"{key:24}", end="")
-        #     elif key == 'date':
-        #         print(f"{key:15}", end="")
-        #     else:
-        #         print(f"{key:<8}", end="")
-        # print()
-
-        for player in stats:
-            for key in player.keys():
-                if key == 'name':
-                    print(f"{player[key]:24}", end="")
-                elif key == 'date':
-                    print(f"{player[key]:15}", end="")
-                else:
-                    if type(player[key]) != str:
-                        print(f"{player[key]:<8.3f}", end="")
-                    else:
-                        print(f"{player[key]:<8}", end="")
-            print()
-            
 class League:
     swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
     espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
@@ -341,8 +96,258 @@ class League:
                 if player.name == name:
                     player.printStats(stat=stat, last=last)
 
-    def compare(self, players, last=-1):
-        pass
+class Team:
+
+    def __init__(self, league: League, teamInfo: dict) -> None:
+        self.abbrev = teamInfo['abbrev']
+        self.teamID = teamInfo['id']
+        self.teamName = teamInfo['location'] + " " + teamInfo['nickname']
+        self.division = league.divisions[teamInfo['divisionId']]
+        self.playoffSeed = teamInfo['playoffSeed']
+        self.record = teamInfo['record']
+        self.transactions = teamInfo['transactionCounter']
+        self.waiverRank = teamInfo['waiverRank']
+        self.totals = {}
+        for key in teamInfo['valuesByStat']:
+            self.totals[statKey[int(key)]] = teamInfo['valuesByStat'][key]
+        self.league = league
+
+    def setRoster(self, json: dict) -> None:
+        self.roster = []
+        for playerInfo in json:
+            member = Player(playerInfo['playerPoolEntry']['player']['fullName'], self.league)
+            member.setUp(self.league, self, playerInfo)
+            self.roster.append(member)
+    
+    def printAverages(self) -> None:
+        for player in self.roster:
+            player.getAverages()
+
+        print(f"{self.teamName} ({self.abbrev}) {self.record['overall']['wins']}-{self.record['overall']['losses']}")
+
+        for key in statHead['averages']:
+            if key == 'name':
+                print(f"{key:24}", end="")
+            else:
+                print(f"{key:<8}", end="")
+        print()
+
+        for player in self.roster:
+            for key in player.averages:
+                if key == 'name':
+                    print(f"{player.averages[key]:24}", end="")
+                else:
+                    if type(player.averages[key]) != str:
+                        print(f"{player.averages[key]:<8.3f}", end="")
+                    else:
+                        print(f"{player.averages[key]:<8}", end="")
+            print()
+                
+
+class Player:
+
+    def __init__(self, name: str, league: League) -> None:
+        self.name = name
+        if self.name in special:
+            self.name = special[self.name]
+        self.league = league
+        
+    def setUp(self, league: League, team: Team, playerInfo) -> None:
+        self.id = playerInfo['playerId']
+        self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
+        self.currentSlot = posKey[playerInfo['lineupSlotId']]
+        self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
+        self.eligibleSlots = [posKey[position] for position in playerInfo['playerPoolEntry']['player']['eligibleSlots'] if posKey[position] in league.rosterBuild.keys()]
+        self.ownership = playerInfo['playerPoolEntry']['player']['ownership']
+        self.nbaTeam = proTeams[playerInfo['playerPoolEntry']['player']['proTeamId']]
+        self.injured = playerInfo['playerPoolEntry']['player']['injured']
+        self.injuryStatus = playerInfo['playerPoolEntry']['player']['injuryStatus']
+        self.ratingsByPeriod = playerInfo['playerPoolEntry']['ratings']
+        self.rosterLocked = playerInfo['playerPoolEntry']['rosterLocked']
+        self.tradeLocked = playerInfo['playerPoolEntry']['tradeLocked']
+        self.lineupLocked = playerInfo['playerPoolEntry']['lineupLocked']
+        self.keeperValue = playerInfo['playerPoolEntry']['keeperValue']
+        self.keeperValueFuture = playerInfo['playerPoolEntry']['keeperValueFuture']
+        self.leagueTeam = team
+
+
+    def getTotals(self) -> None:
+        scoring = self.league.scoring
+
+        html = self.league.totalsHTML
+
+        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
+
+        self.totals = {} # initiate
+
+        lname = self.name.split(" ")[1].lower()
+        lname = u"".join([c for c in unicodedata.normalize('NFKD', lname) if not unicodedata.combining(c)])
+
+        while len(rows) != 0:
+            mid = len(rows) // 2
+            name = rows[mid].find('td').find('a').text
+            currlname = name.split(" ")[1].lower()
+            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
+            if currlname == lname:
+                for row in rows:
+                    if row.find('td').find('a').text == self.name:
+                        fpts = 0
+                        for cat in categories:
+                            val = row.find('td', {'data-stat': cat}).text
+                            if val == "":
+                                self.totals[cat] = 0
+                            else:
+                                self.totals[cat] = float(val) # insert stats under category
+                            
+                            if cat in self.league.scoring.keys(): # if category is scored
+                                fpts += self.league.scoring[cat] * self.totals[cat] # add to total
+                        self.totals['fpts'] = fpts
+                        break
+                break
+            elif currlname < lname:
+                rows = rows[mid+1:]
+            else:
+                rows = rows[:mid]
+
+    def getAverages(self) -> None:
+        doNotAvg = ('g', 'fg_pct', 'fg3_pct', 'ft_pct')
+
+        self.getTotals()
+        self.averages = {'name': self.name}
+        for key in self.totals:
+            self.averages[key] = self.totals[key]
+            if key not in doNotAvg:
+                self.averages[key] /= self.totals['g']
+
+    def getGameLog(self, last: int=0) -> None:
+
+        # Find href to player page from league totals page
+        html = self.league.totalsHTML
+
+        rows = html.find('tbody').findAll('tr', {'class': 'full_table'})
+
+        lname = self.name.split(" ")[1].lower()
+        lname = u"".join([c for c in unicodedata.normalize('NFKD', lname) if not unicodedata.combining(c)])
+
+        nameFound = False
+        while len(rows) != 0:
+            mid = len(rows) // 2
+            name = rows[mid].find('td').find('a').text
+            currlname = name.split(" ")[1].lower()
+            currlname = u"".join([c for c in unicodedata.normalize('NFKD', currlname) if not unicodedata.combining(c)])
+        
+            if currlname == lname:
+                for row in rows:
+                    if row.find('td').find('a').text == self.name:
+                        nameLink = row.find('td', {'data-stat': 'player'}).find('a')
+                        playerLink = nameLink['href'].replace('.html', "")
+                        nameFound = True
+                        break
+                break
+            elif currlname < lname:
+                rows = rows[mid+1:]
+            else:
+                rows = rows[:mid]
+        
+        if not nameFound:
+            print("Error: Name not found")
+            return None
+
+        # Use href to find game log page
+        gamesPage = f"https://www.basketball-reference.com{playerLink}/gamelog/2020"
+
+        html = getSoup(gamesPage)
+
+        rows = html.find('tbody').findAll('tr')
+
+        # add to games to game log
+        avg = {'date': 'Average'}
+        for cat in categories[1:]:
+            avg[cat] = 0 
+        avg['fpts'] = 0
+        gp = 0
+
+        self.gameLog = []
+        for row in rows[-last:]:
+            date = row.find('td', {'data-stat': 'date_game'}).text
+            game = {'date': date}
+            
+            fpts = 0
+            played = True
+            for cat in categories[1:]:
+                cell = row.find('td', {'data-stat': cat})
+                if cell == None: # player is out, has no stats
+                    played = False
+                    game['mp'] = row.find('td', {'data-stat': 'reason'}).text
+                    break # move to next game
+                else: 
+                    game[cat] = cell.text
+
+                if game[cat] != "" and cat != 'mp':
+                    game[cat] = float(game[cat]) # cast all values to float if possible
+                    avg[cat] += game[cat]
+                elif cat != 'mp':
+                    game[cat] = 0
+                else:
+                    minutes = game[cat].split(":")
+                    avg[cat] += int(minutes[0])+(float(minutes[1])/60)
+
+                if cat in self.league.scoring: # if category is scored
+                    fpts += self.league.scoring[cat] * game[cat] # add to total
+
+            if played == True:
+                game['fpts'] = fpts
+                avg['fpts'] += game['fpts']
+                gp += 1
+
+            self.gameLog.append(game)
+
+        for key in avg:
+            if key != 'date':
+                avg[key] /= gp
+        
+        self.gameLog.append(avg)
+        
+    
+    def printStats(self, stat: str='averages', last: int=0):
+        headers = statHead[stat]
+
+        if stat == 'averages':
+            self.getAverages()
+            stats = [self.averages]
+        elif stat == 'gamelog':
+            self.getGameLog(last=last)
+            stats = self.gameLog[:]
+            avg = {'date': "Average"}
+            # for key in self.averages:
+            #     if key in self.gameLog[0]:
+            #         avg[key] = self.averages[key]
+            # stats.append(avg)
+        else:
+            print("Error: Not valid stat group")
+            return None
+
+        # for key in headers: # arbitrary player stat categories
+        #     if key == 'name':
+        #         print(f"{key:24}", end="")
+        #     elif key == 'date':
+        #         print(f"{key:15}", end="")
+        #     else:
+        #         print(f"{key:<8}", end="")
+        # print()
+
+        for player in stats:
+            for key in player.keys():
+                if key == 'name':
+                    print(f"{player[key]:24}", end="")
+                elif key == 'date':
+                    print(f"{player[key]:15}", end="")
+                else:
+                    if type(player[key]) != str:
+                        print(f"{player[key]:<8.3f}", end="")
+                    else:
+                        print(f"{player[key]:<8}", end="")
+            print()
         
 leagueID = '17451714'
 year = '2020'
@@ -350,7 +355,11 @@ year = '2020'
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 
 myLeague = League(leagueID, year)
-myLeague.printStats('Luka Doncic', stat='gamelog', last=5)
+for team in myLeague.teams:
+    team.printAverages()
+#player = Player('Luka Doncic', league=myLeague).printStats(stat='gamelog', last=0)
+# myLeague.printStats('Khris Middleton', stat='gamelog')
+# myLeague.printStats('Lauri Markkanen', stat='gamelog')
 
 # 1.0 0 PTS
 # 3.0 1 BLK
