@@ -14,19 +14,28 @@ statHead = {'averages': ("name", 'g', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a"
             'gamelog': ('date', "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")}
 categories = ("g", "mp", "fg", "fga", "fg_pct", "fg3", "fg3a", "fg3_pct", "ft", "fta", "ft_pct", "trb", "ast", "stl", "blk", "tov", "pts")
 
+def getUserInfo() -> dict:
+    data = {}
+    try:
+        f = open('user_info.txt', 'r')
+        data['league_id'] = f.readline()[:-1]
+        data['season'] = f.readline()[:-1]
+        data['swid'] = f.readline()[:-1]
+        data['espn_s2'] = f.readline().replace('\n', '')
+        f.close()
+    except Exception:
+        print("File read error")
+    return data
+
 def getSoup(url: str) -> BeautifulSoup:
     response = requests.get(url)
     html = BeautifulSoup(response.text, 'html.parser')
     return html
 
 class League:
-    swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
-    espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
-        
-    def __init__(self, leagueID, season):
-        swid = '{2C5C7745-8766-42EC-A3F1-7A0B7B109444}'
-        espn_s2 = 'AECmhjRVqnP2Kn0FCnA03f8PPpste99uNXU2tDSycRsM5a1wEHEdavBd%2Fxm2zRFUpRjbQ324GXcHqV7WVGE%2FIle7q6UpBOWNIIc5KLXxbzWO039IHHczyRtSjgIgZPH33LZz6bU1THcjLyGeSQA%2FZDBkTXT2nkynbXCAJM0OBcww7CMHHx6Ar3QD0A46ovFykpW%2FTOHtLUEfgDIVS9jwzGvLStnElXaa8m4sAk6QunOBVmbN%2FOzOh28NPCGBSOY8eru2CaqY57Z7xEIKoJslILFV'
-        url = "https://fantasy.espn.com/apis/v3/games/fba/seasons/"+ str(season) + "/segments/0/leagues/" + str(leagueID)
+    
+    def __init__(self, leagueID, season, swid, espn_s2):
+        url = "https://fantasy.espn.com/apis/v3/games/fba/seasons/"+ season + "/segments/0/leagues/" + leagueID
         
         # LEAGUE INFO
         response = requests.get(url, params={'view': 'mSettings'}, cookies={'swid': self.swid, 'espn_s2': self.espn_s2}).json()
@@ -334,22 +343,10 @@ class Player:
             self.getGameLog(last=last)
             stats = self.gameLog[:]
             avg = {'date': "Average"}
-            # for key in self.averages:
-            #     if key in self.gameLog[0]:
-            #         avg[key] = self.averages[key]
-            # stats.append(avg)
+           
         else:
             print("Error: Not valid stat group")
             return None
-
-        # for key in headers: # arbitrary player stat categories
-        #     if key == 'name':
-        #         print(f"{key:24}", end="")
-        #     elif key == 'date':
-        #         print(f"{key:15}", end="")
-        #     else:
-        #         print(f"{key:<8}", end="")
-        # print()
 
         for player in stats:
             for key in player.keys():
@@ -363,16 +360,18 @@ class Player:
                     else:
                         print(f"{player[key]:<8}", end="")
             print()
-        
-leagueID = '17451714'
-year = '2020'
 
+user_info = getUserInfo()
+leagueID = user_info['league_id']
+year = user_info['season']
+swid = user_info['swid']
+espn_s2 = user_info['espn_s2']
+
+# TODO add comparisons
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 
-myLeague = League(leagueID, year)
-for team in myLeague.teams:
-    team.printAverages()
-print(myLeague.freeAgents.players[0])
+myLeague = League(leagueID, year, swid, espn_s2)
+print(myLeague.freeAgents.players[0].name)
 #player = Player('Luka Doncic', league=myLeague).printStats(stat='gamelog', last=0)
 # myLeague.printStats('Khris Middleton', stat='gamelog')
 # myLeague.printStats('Lauri Markkanen', stat='gamelog')
