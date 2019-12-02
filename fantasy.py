@@ -3,8 +3,8 @@ import requests
 import unicodedata
 
 statKey = {0: 'pts', 1: 'blk', 2: 'stl', 3: 'ast', 4: 'orb', 5: 'drb', 6: 'trb', 11: 'tov', 13: 'fg', 14: 'fga', 15: 'ft', 16: 'fta', 17: 'fg3', 18: 'fg3a', 19: 'fg_pct', 20: 'ft_pct', 21: 'fg3_pct', 22: 'efg_pct', 23: 'fgmi', 24: 'ftmi', 25: 'fg3mi'}
-posKey = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', "PF/C", "F/C", 'UTL', 'BE', 'IR', 'EXTRA')
-proTeams = {1:'ATL', 2:'BOS', 3:'NOP', 4:'CHI', 5:'CLE', 6:'DAL', 7:'DEN', 8:'DET', 9:'GSW', 10:'HOU', 11:'IND', 12:'LAC', 13:'LAL', 14:'MIA', 15:'MIL', 16:'MIN', 17:'BKN', 18:'NYK', 19:'ORL', 20:'PHI', 21:'PHX', 22:'POR', 23:'SAC', 24:'SAS', 25:'OKC', 26:'UTA', 27:'WAS', 28:'TOR', 29:'MEM', 30:'CHA'}
+posKey = ('PG', 'SG', 'SF', 'PF', 'C', 'G', 'F', 'SG/SF', 'G/F', "PF/C", "F/C", 'UTL', 'BE', 'IR', 'EXTRA', '???')
+proTeams = ('FA', 'ATL', 'BOS', 'NOP', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'HOU', 'IND', 'LAC', 'LAL', 'MIA', 'MIL', 'MIN', 'BKN', 'NYK', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'OKC', 'UTA', 'WAS', 'TOR', 'MEM', 'CHA')
 special = {'Luka Doncic': "Luka Dončić", 'Nikola Jokic': "Nikola Jokić", 'Bojan Bogdanovic': 'Bojan Bogdanović',
     'Tomas Satoransky': 'Tomáš Satoranský', 'Marvin Bagley III': 'Marvin Bagley', "Wendell Carter Jr.": "Wendell Carter",
          "Jonas Valanciunas": "Jonas Valančiūnas", "Kristaps Porzingis": "Kristaps Porziņģis", 'Bogdan Bogdanovic': 'Bogdan Bogdanović', 
@@ -68,7 +68,7 @@ class League:
         # TODO
         # FREE AGENTS
         response = requests.get(url, params={'view': 'kona_player_info'}, cookies={'swid': swid, 'espn_s2': espn_s2}).json()
-
+        self.freeAgents = FreeAgents(self, response)
         
         # BBALL REF SEASON TOTALS
         seasonurl = f'https://www.basketball-reference.com/leagues/NBA_{season}_totals.html'
@@ -96,6 +96,17 @@ class League:
                 if player.name == name:
                     player.printStats(stat=stat, last=last)
 
+class FreeAgents:
+
+    def __init__(self, league: League, kona_player_info: dict) -> None:
+        self.players = []
+        for entry in kona_player_info['players']:
+            if entry['status'] == "FREEAGENT":
+                player = Player(entry['player']['fullName'], league) 
+                player.setUp(entry, isFreeAgent=True)
+                self.players.append(player)
+
+
 class Team:
 
     def __init__(self, league: League, teamInfo: dict) -> None:
@@ -111,12 +122,12 @@ class Team:
         for key in teamInfo['valuesByStat']:
             self.totals[statKey[int(key)]] = teamInfo['valuesByStat'][key]
         self.league = league
+        self.roster = []
 
     def setRoster(self, json: dict) -> None:
-        self.roster = []
         for playerInfo in json:
             member = Player(playerInfo['playerPoolEntry']['player']['fullName'], self.league)
-            member.setUp(self.league, self, playerInfo)
+            member.setUp(playerInfo)
             self.roster.append(member)
     
     def printAverages(self) -> None:
@@ -142,7 +153,6 @@ class Team:
                     else:
                         print(f"{player.averages[key]:<8}", end="")
             print()
-                
 
 class Player:
 
@@ -152,24 +162,29 @@ class Player:
             self.name = special[self.name]
         self.league = league
         
-    def setUp(self, league: League, team: Team, playerInfo) -> None:
-        self.id = playerInfo['playerId']
-        self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
-        self.currentSlot = posKey[playerInfo['lineupSlotId']]
-        self.droppable = playerInfo['playerPoolEntry']['player']['droppable']
-        self.eligibleSlots = [posKey[position] for position in playerInfo['playerPoolEntry']['player']['eligibleSlots'] if posKey[position] in league.rosterBuild.keys()]
-        self.ownership = playerInfo['playerPoolEntry']['player']['ownership']
-        self.nbaTeam = proTeams[playerInfo['playerPoolEntry']['player']['proTeamId']]
-        self.injured = playerInfo['playerPoolEntry']['player']['injured']
-        self.injuryStatus = playerInfo['playerPoolEntry']['player']['injuryStatus']
-        self.ratingsByPeriod = playerInfo['playerPoolEntry']['ratings']
-        self.rosterLocked = playerInfo['playerPoolEntry']['rosterLocked']
-        self.tradeLocked = playerInfo['playerPoolEntry']['tradeLocked']
-        self.lineupLocked = playerInfo['playerPoolEntry']['lineupLocked']
-        self.keeperValue = playerInfo['playerPoolEntry']['keeperValue']
-        self.keeperValueFuture = playerInfo['playerPoolEntry']['keeperValueFuture']
-        self.leagueTeam = team
+    def setUp(self, playerInfo: dict, isFreeAgent=False) -> None:
+        if not isFreeAgent:
+            self.acquisition = {'day': playerInfo['acquisitionDate'], 'type': playerInfo['acquisitionType']}
+            self.currentSlot = posKey[playerInfo['lineupSlotId']]
+            playerInfo = playerInfo['playerPoolEntry']
+        
+        self.id = playerInfo['id']
 
+        self.droppable = playerInfo['player']['droppable']
+        self.eligibleSlots = [posKey[position] for position in playerInfo['player']['eligibleSlots'] if posKey[position] in self.league.rosterBuild.keys()]
+        self.ownership = playerInfo['player']['ownership']
+        self.nbaTeam = proTeams[playerInfo['player']['proTeamId']]
+        self.injured = playerInfo['player']['injured']
+        try:
+            self.injuryStatus = playerInfo['player']['injuryStatus']
+        except KeyError:
+            self.injuryStatus = "ACTIVE"
+        self.ratingsByPeriod = playerInfo['ratings']
+        self.rosterLocked = playerInfo['rosterLocked']
+        self.tradeLocked = playerInfo['tradeLocked']
+        self.lineupLocked = playerInfo['lineupLocked']
+        self.keeperValue = playerInfo['keeperValue']
+        self.keeperValueFuture = playerInfo['keeperValueFuture']        
 
     def getTotals(self) -> None:
         scoring = self.league.scoring
@@ -357,6 +372,7 @@ compare = ["D'Angelo Russell", "Danilo Gallinari"]
 myLeague = League(leagueID, year)
 for team in myLeague.teams:
     team.printAverages()
+print(myLeague.freeAgents.players[0])
 #player = Player('Luka Doncic', league=myLeague).printStats(stat='gamelog', last=0)
 # myLeague.printStats('Khris Middleton', stat='gamelog')
 # myLeague.printStats('Lauri Markkanen', stat='gamelog')
