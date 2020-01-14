@@ -38,6 +38,8 @@ class League:
         url = "https://fantasy.espn.com/apis/v3/games/fba/seasons/"+ season + "/segments/0/leagues/" + leagueID
         
         # LEAGUE INFO
+        self.swid = swid
+        self.espn_s2 = espn_s2
         response = requests.get(url, params={'view': 'mSettings'}, cookies={'swid': self.swid, 'espn_s2': self.espn_s2}).json()
         try:
             settings = response['settings']
@@ -282,7 +284,7 @@ class Player:
 
         html = getSoup(gamesPage)
 
-        rows = html.find('tbody').findAll('tr')
+        rows = html.find('tbody').findAll('tr')[21:35]
 
         # add to games to game log
         avg = {'date': 'Average'}
@@ -293,7 +295,11 @@ class Player:
 
         self.gameLog = []
         for row in rows[-last:]:
-            date = row.find('td', {'data-stat': 'date_game'}).text
+            try:
+                date = row.find('td', {'data-stat': 'date_game'}).text
+            except AttributeError:
+                continue
+
             game = {'date': date}
             
             fpts = 0
@@ -371,11 +377,11 @@ espn_s2 = user_info['espn_s2']
 compare = ["D'Angelo Russell", "Danilo Gallinari"]
 
 myLeague = League(leagueID, year, swid, espn_s2)
-print(myLeague.freeAgents.players[0].name)
+#print(myLeague.freeAgents.players[0].name)
 #player = Player('Luka Doncic', league=myLeague).printStats(stat='gamelog', last=0)
 # myLeague.printStats('Khris Middleton', stat='gamelog')
 # myLeague.printStats('Lauri Markkanen', stat='gamelog')
-
+myLeague.printStats('Mitchell Robinson', stat='gamelog')
 # 1.0 0 PTS
 # 3.0 1 BLK
 # 3.0 2 STL
